@@ -1,0 +1,91 @@
+- hosts: all
+  become: yes
+  gather_facts: no
+
+  vars_files:
+    - vars
+
+  tasks:
+  - name: install unzip
+    shell: |
+      if ! command -v unzip
+      then
+        apt-get update
+        apt-get install unzip
+      fi
+  - name: Copy the artifact from master to machines
+    copy: src={{zip_path}} dest=/home/{{ansible_user}}
+
+  - name: unzip code
+    shell: cd ~ ; sudo unzip -o /home/{{ansible_user}}/zipped/zippedApp.zip -d /home/{{ansible_user}}
+
+  - name: install node
+    shell: |
+      if ! command -v node; then
+        curl -sL https://deb.nodesource.com/setup_14.x | sudo -E bash - && sudo apt-get install -y nodejs
+      fi
+  - name: install pm2
+    npm:
+      name: pm2
+      global: yes
+
+  - name: install pm2 startup
+    shell: pm2 startup && sudo env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u uriel --hp /home/{{ansible_user}}
+
+  - name: Install packages based on package.json using the npm
+    npm:
+      path: /home/{{ansible_user}}/s
+      state: present
+
+  - name: add .env file
+    shell: | 
+      echo "
+      # Host configuration
+      PORT=8080
+      HOST={{host}}
+      # Postgres configuration
+      PGHOST={{pghost}}
+      PGUSERNAME={{pg_username}}
+      PGDATABASE=postgres
+      PGPASSWORD={{pg_password}}
+      PGPORT=5432
+      HOST_URL=http://{{LB_ip}}:8080
+      COOKIE_ENCRYPT_PWD=superAwesomePasswordStringThatIsAtLeast32CharactersLong!
+      NODE_ENV=development
+      # Okta configuration
+      OKTA_ORG_URL={{okta_url}}
+      OKTA_CLIENT_ID={{okta_client_id}}
+      OKTA_CLIENT_SECRET={{okta_client_secret}}
+      " > s/.env;
+
+    tags:
+         - env
+
+  - name: run initdb script
+    run_once: true
+    shell: cd /home/{{ansible_user}}/s && npm run initdb
+    register: initdb
+    tags:
+      - initdb
+
+  - debug: msg="{{ initdb.stdout }}"
+    run_once: true
+    tags:
+      - initdb
+
+  - name: pm2 kill
+    shell: pm2 kill
+    tags:
+      - kill
+
+  - name: run app as pm2 process
+    shell: cd /home/{{ansible_user}}/s && pm2 start src/index.js
+    register: out
+    tags:
+      - run
+
+  - debug: var=out.stdout_lines
+
+
+  - name: save process to run at start app
+    shell: pm2 save
