@@ -15,9 +15,13 @@
       fi
   - name: Copy the artifact from master to machines
     copy: src={{zip_path}} dest=/home/{{ansible_user}}
-
-  - name: unzip code
-    shell: cd ~ ; sudo unzip -o /home/{{ansible_user}}/zipped/zippedApp.zip -d /home/{{ansible_user}}
+    
+  - name: "Clone a PUBLIC repo"
+    git:
+        repo: https://github.com/majdoleen1/bootcamp-app.git
+        dest: /home/majdoleen/s
+        clone: yes
+        update: no
 
   - name: install node
     shell: |
